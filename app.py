@@ -6,7 +6,6 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
 import pandas as pd
 import requests
-import openai
 import os
 from io import StringIO
 from dotenv import load_dotenv
@@ -16,17 +15,18 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# 環境變數設定
+# 環境變數
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
-openai.api_key = OPENAI_API_KEY
 
 # Google Sheet CSV URL
 CSV_URL = "https://docs.google.com/spreadsheets/d/1P6CscAxsxkqSPBiOP2s2X1-J5P_2YCNKKi4FOIM8zT0/gviz/tq?tqx=out:csv&gid=1348505043"
+
+# 分頁狀態記憶（簡易測試用，可改為 Redis 或 DB）
+user_sessions = {}
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -39,41 +39,62 @@ def callback():
         abort(400)
     return 'OK'
 
+def format_page(results, page, page_size):
+    start = (page - 1) * page_size
+    end = start + page_size
+    sliced = results[start:end]
+    formatted = []
+
+    for i, row in enumerate(sliced, start=start + 1):
+        name = str(row.get("姓名", ""))
+        company = str(row.get("公司", ""))
+        phone = str(row.get("電話", "未提供"))
+        email = str(row.get("E-MAIL", "未提供"))
+        date = str(row.get("日期", ""))
+        formatted.append(f"{i}. **{name}**\n- 公司：{company}\n- 日期：{date}\n- 電話：{phone}\n- Email：{email}\n")
+
+    return "\n".join(formatted)
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    keyword = event.message.text.strip()
+    user_id = event.source.user_id
+    text = event.message.text.strip()
 
+    # 換頁請求
+    if user_id in user_sessions and text.lower() in ["下一頁", "下一页", "more", "more >>"]:
+        session = user_sessions[user_id]
+        session["page"] += 1
+        page = session["page"]
+        page_size = session["page_size"]
+        keyword = session["keyword"]
+        results = session["results"]
+
+        if (page - 1) * page_size >= len(results):
+            reply = "已經是最後一頁了。"
+        else:
+            reply = f"🔎 關鍵字：{keyword}（第 {page} 頁）\n\n" + format_page(results, page, page_size)
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+        return
+
+    # 關鍵字查詢流程
     try:
         response = requests.get(CSV_URL)
         df = pd.read_csv(StringIO(response.text))
-        matched = df[df.apply(lambda row: keyword in str(row.values), axis=1)]
+        matched = df[df.apply(lambda row: text in str(row.values), axis=1)]
 
         if matched.empty:
             reply_text = "查無資料，請嘗試其他關鍵字。"
         else:
-            extracted = []
-            for _, row in matched.head(5).iterrows():
-                data = {
-                    "日期": str(row.get("日期", "")),
-                    "公司": str(row.get("公司", "")),
-                    "姓名": str(row.get("姓名", "")),
-                    "電話": str(row.get("電話", "")),
-                    "Email": str(row.get("E-MAIL", ""))
-                }
-                extracted.append(data)
-
-            gpt_prompt = f"使用者查詢關鍵字：「{keyword}」，請根據以下聯絡紀錄摘要並美化回覆給使用者：\n"
-            for d in extracted:
-                gpt_prompt += f"- {d['日期']}，{d['公司']}，{d['姓名']}，{d['電話']}，Email：{d['Email']}\n"
-
-            completion = openai.ChatCompletion.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "你是一個客服助理，會根據聯絡紀錄精簡並格式化回答"},
-                    {"role": "user", "content": gpt_prompt}
-                ]
-            )
-            reply_text = completion.choices[0].message.content.strip()
+            records = matched.to_dict("records")
+            user_sessions[user_id] = {
+                "keyword": text,
+                "results": records,
+                "page": 1,
+                "page_size": 5
+            }
+            reply_text = f"🔎 關鍵字：{text}（第 1 頁）\n\n" + format_page(records, 1, 5)
+            if len(records) > 5:
+                reply_text += "\n\n👉 輸入「下一頁」以查看更多結果"
 
     except Exception as e:
         reply_text = f"處理時發生錯誤：{str(e)}"
