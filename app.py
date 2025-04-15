@@ -1,108 +1,135 @@
 
-from flask import Flask, request, abort
+from flask import Flask, request, abort, render_template, redirect, url_for, session, send_from_directory
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
-import pandas as pd
-import requests
 import os
+import requests
+import pandas as pd
 from io import StringIO
+from datetime import datetime
 from dotenv import load_dotenv
 
-# 載入 .env
-load_dotenv()
+from utils.auth import check_login
+from utils.logger import write_log, read_log_list, read_log_by_date
 
+# 初始化
+load_dotenv()
 app = Flask(__name__)
+app.secret_key = os.urandom(24)
 
 # 環境變數
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# Google Sheet CSV URL
+# Sheet 設定
 CSV_URL = "https://docs.google.com/spreadsheets/d/1P6CscAxsxkqSPBiOP2s2X1-J5P_2YCNKKi4FOIM8zT0/gviz/tq?tqx=out:csv&gid=1348505043"
 
-# 分頁狀態記憶（簡易測試用，可改為 Redis 或 DB）
-user_sessions = {}
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+@app.route("/logs")
+def logs():
+    log_files = read_log_list()
+    return render_template("logs.html", log_files=log_files)
+
+@app.route("/logs/<date>")
+def log_detail(date):
+    logs = read_log_by_date(date)
+    return render_template("log_detail.html", logs=logs, date=date)
+
+@app.route("/admin", methods=["GET", "POST"])
+def admin():
+    if request.method == "POST":
+        username = request.form.get("username")
+        password = request.form.get("password")
+        if check_login(username, password):
+            session["admin"] = True
+            return redirect("/admin/logs")
+    return render_template("admin.html")
+
+@app.route("/admin/logs")
+def admin_logs():
+    if not session.get("admin"):
+        return redirect("/admin")
+    log_files = read_log_list()
+    return render_template("admin_logs.html", log_files=log_files)
+
+@app.route("/admin/logs/<filename>")
+def admin_log_file(filename):
+    if not session.get("admin"):
+        return redirect("/admin")
+    date = filename.replace("qa_log_", "").replace(".txt", "")
+    logs = read_log_by_date(date)
+    return render_template("log_detail.html", logs=logs, date=date)
 
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers['X-Line-Signature']
     body = request.get_data(as_text=True)
-
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
     return 'OK'
 
-def format_page(results, page, page_size):
-    start = (page - 1) * page_size
-    end = start + page_size
-    sliced = results[start:end]
-    formatted = []
-
-    for i, row in enumerate(sliced, start=start + 1):
-        name = str(row.get("姓名", ""))
-        company = str(row.get("公司", ""))
-        phone = str(row.get("電話", "未提供"))
-        email = str(row.get("E-MAIL", "未提供"))
-        date = str(row.get("日期", ""))
-        formatted.append(f"{i}. **{name}**\n- 公司：{company}\n- 日期：{date}\n- 電話：{phone}\n- Email：{email}\n")
-
-    return "\n".join(formatted)
-
 @handler.add(MessageEvent, message=TextMessage)
-def handle_message(event):
+def handle_line_message(event):
     user_id = event.source.user_id
-    text = event.message.text.strip()
+    user_msg = event.message.text.strip()
 
-    # 換頁請求
-    if user_id in user_sessions and text.lower() in ["下一頁", "下一页", "more", "more >>"]:
-        session = user_sessions[user_id]
-        session["page"] += 1
-        page = session["page"]
-        page_size = session["page_size"]
-        keyword = session["keyword"]
-        results = session["results"]
-
-        if (page - 1) * page_size >= len(results):
-            reply = "已經是最後一頁了。"
-        else:
-            reply = f"🔎 關鍵字：{keyword}（第 {page} 頁）\n\n" + format_page(results, page, page_size)
-        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-        return
-
-    # 關鍵字查詢流程
     try:
-        response = requests.get(CSV_URL)
-        df = pd.read_csv(StringIO(response.text))
-        matched = df[df.apply(lambda row: text in str(row.values), axis=1)]
+        df = pd.read_csv(StringIO(requests.get(CSV_URL).text))
+        matched = df[df.apply(lambda row: user_msg in str(row.values), axis=1)]
 
         if matched.empty:
-            reply_text = "查無資料，請嘗試其他關鍵字。"
+            reply = "查無資料，請嘗試其他關鍵字。"
         else:
-            records = matched.to_dict("records")
-            user_sessions[user_id] = {
-                "keyword": text,
-                "results": records,
-                "page": 1,
-                "page_size": 5
-            }
-            reply_text = f"🔎 關鍵字：{text}（第 1 頁）\n\n" + format_page(records, 1, 5)
-            if len(records) > 5:
-                reply_text += "\n\n👉 輸入「下一頁」以查看更多結果"
+            results = matched.head(5).to_dict("records")
+            reply = ""
+            for r in results:
+                reply += f"{r.get('日期','')}: {r.get('公司','')} - {r.get('姓名','')}\\n"
+
+        # 寫入日誌
+        write_log(
+            source="LINE",
+            question=user_msg,
+            answer=reply,
+            ip=None
+        )
 
     except Exception as e:
-        reply_text = f"處理時發生錯誤：{str(e)}"
+        reply = f"錯誤：{e}"
 
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+@app.route("/ask", methods=["POST"])
+def ask_web():
+    user_msg = request.form.get("question")
+    user_ip = request.remote_addr
+
+    try:
+        df = pd.read_csv(StringIO(requests.get(CSV_URL).text))
+        matched = df[df.apply(lambda row: user_msg in str(row.values), axis=1)]
+
+        if matched.empty:
+            answer = "查無資料，請嘗試其他關鍵字。"
+        else:
+            results = matched.head(5).to_dict("records")
+            answer = ""
+            for r in results:
+                answer += f"{r.get('日期','')}: {r.get('公司','')} - {r.get('姓名','')}\\n"
+
+        write_log("WEB", user_msg, answer, user_ip)
+
+    except Exception as e:
+        answer = f"錯誤：{e}"
+
+    return render_template("index.html", question=user_msg, answer=answer)
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=8080)
+    app.run(host="0.0.0.0", port=8080)
