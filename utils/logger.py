@@ -1,3 +1,4 @@
+
 import os
 from datetime import datetime
 
@@ -6,7 +7,6 @@ LOG_DIR = "logs"
 def write_log(source, question, answer, ip=None):
     if not os.path.exists(LOG_DIR):
         os.makedirs(LOG_DIR)
-
     now = datetime.now()
     filename = f"{LOG_DIR}/qa_log_{now.strftime('%Y-%m-%d')}.txt"
     timestamp = now.strftime("%Y/%m/%d %p %I:%M:%S")
