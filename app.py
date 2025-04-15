@@ -1,5 +1,4 @@
-
-from flask import Flask, request, abort, render_template, redirect, url_for, session, send_from_directory
+from flask import Flask, request, abort, render_template, redirect, url_for, session
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -25,22 +24,22 @@ LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
-# Sheet 設定
+# Google Sheet CSV 來源
 CSV_URL = "https://docs.google.com/spreadsheets/d/1P6CscAxsxkqSPBiOP2s2X1-J5P_2YCNKKi4FOIM8zT0/gviz/tq?tqx=out:csv&gid=1348505043"
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", title="查詢首頁")
 
 @app.route("/logs")
 def logs():
     log_files = read_log_list()
-    return render_template("logs.html", log_files=log_files)
+    return render_template("logs.html", log_files=log_files, title="問答紀錄")
 
 @app.route("/logs/<date>")
 def log_detail(date):
     logs = read_log_by_date(date)
-    return render_template("log_detail.html", logs=logs, date=date)
+    return render_template("log_detail.html", logs=logs, date=date, title=f"{date} 紀錄")
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
@@ -50,14 +49,14 @@ def admin():
         if check_login(username, password):
             session["admin"] = True
             return redirect("/admin/logs")
-    return render_template("admin.html")
+    return render_template("admin.html", title="管理登入")
 
 @app.route("/admin/logs")
 def admin_logs():
     if not session.get("admin"):
         return redirect("/admin")
     log_files = read_log_list()
-    return render_template("admin_logs.html", log_files=log_files)
+    return render_template("admin_logs.html", log_files=log_files, title="管理紀錄")
 
 @app.route("/admin/logs/<filename>")
 def admin_log_file(filename):
@@ -65,21 +64,34 @@ def admin_log_file(filename):
         return redirect("/admin")
     date = filename.replace("qa_log_", "").replace(".txt", "")
     logs = read_log_by_date(date)
-    return render_template("log_detail.html", logs=logs, date=date)
+    return render_template("log_detail.html", logs=logs, date=date, title=f"{date} 詳細紀錄")
 
-@app.route("/callback", methods=['POST'])
+def format_response(results):
+    reply = []
+    for r in results:
+        reply.append(
+            f"{r.get('日期','')}"
+            f"\n公司：{r.get('公司','')}"
+            f"\n姓名：{r.get('姓名','')}"
+            f"\n電話：{r.get('電話','未提供')}"
+            f"\nEmail：{r.get('E-MAIL','未提供')}"
+            f"\n--------------------"
+        )
+    return "\n".join(reply)
+
+@app.route("/callback", methods=["POST"])
 def callback():
-    signature = request.headers['X-Line-Signature']
+    signature = request.headers["X-Line-Signature"]
     body = request.get_data(as_text=True)
+
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
         abort(400)
-    return 'OK'
+    return "OK"
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_line_message(event):
-    user_id = event.source.user_id
     user_msg = event.message.text.strip()
 
     try:
@@ -89,18 +101,10 @@ def handle_line_message(event):
         if matched.empty:
             reply = "查無資料，請嘗試其他關鍵字。"
         else:
-            results = matched.head(5).to_dict("records")
-            reply = ""
-            for r in results:
-                reply += f"{r.get('日期','')}: {r.get('公司','')} - {r.get('姓名','')}\\n"
+            results = matched.to_dict("records")
+            reply = format_response(results)
 
-        # 寫入日誌
-        write_log(
-            source="LINE",
-            question=user_msg,
-            answer=reply,
-            ip=None
-        )
+        write_log("LINE", user_msg, reply, None)
 
     except Exception as e:
         reply = f"錯誤：{e}"
@@ -119,17 +123,15 @@ def ask_web():
         if matched.empty:
             answer = "查無資料，請嘗試其他關鍵字。"
         else:
-            results = matched.head(5).to_dict("records")
-            answer = ""
-            for r in results:
-                answer += f"{r.get('日期','')}: {r.get('公司','')} - {r.get('姓名','')}\\n"
+            results = matched.to_dict("records")
+            answer = format_response(results)
 
         write_log("WEB", user_msg, answer, user_ip)
 
     except Exception as e:
         answer = f"錯誤：{e}"
 
-    return render_template("index.html", question=user_msg, answer=answer)
+    return render_template("index.html", question=user_msg, answer=answer, title="查詢結果")
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
