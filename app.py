@@ -75,6 +75,8 @@ def format_response(results):
             f"\n姓名：{r.get('姓名','')}"
             f"\n電話：{r.get('電話','未提供')}"
             f"\nEmail：{r.get('E-MAIL','未提供')}"
+            f"\n問題：{r.get('問題','')}"
+            f"\n處理：{r.get('處理','')}"
             f"\n--------------------"
         )
     return "\n".join(reply)
