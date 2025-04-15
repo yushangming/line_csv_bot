@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><title>問答紀錄列表</title></head>
+<body>
+<h2>問答紀錄列表</h2>
+{% for file in log_files %}
+    <p><a href="/logs/{{ file[8:18] }}">{{ file[8:18] }}</a></p>
+{% endfor %}
+<a href="/">返回首頁</a>
+</body>
+</html>

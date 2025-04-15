@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><title>{{ date }} 的問答紀錄</title></head>
+<body>
+<h2>{{ date }} 的問答紀錄</h2>
+{% for log in logs %}
+<pre>{{ log }}</pre><hr>
+{% endfor %}
+<a href="/logs">← 返回列表</a>
+</body>
+</html>

@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><title>管理介面</title></head>
+<body>
+<h2>管理介面</h2>
+{% for file in log_files %}
+<p><a href="/admin/logs/{{ file }}">{{ file }}</a></p>
+{% endfor %}
+<a href="/">返回首頁</a>
+</body>
+</html>

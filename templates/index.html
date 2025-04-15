@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="UTF-8"><title>ICP DAS PACTECH 問答助手</title></head>
+<body>
+<h2>ICP DAS PACTECH 問答助手</h2>
+<form method="post" action="/ask">
+    <input name="question" placeholder="輸入您的問題">
+    <button type="submit">送出</button>
+</form>
+{% if question %}
+<p><strong>問題：</strong>{{ question }}</p>
+<p><strong>回答：</strong>{{ answer }}</p>
+{% endif %}
+<a href="/logs">查看紀錄</a> | <a href="/admin">管理介面</a>
+</body>
+</html>
