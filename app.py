@@ -36,6 +36,8 @@ def format_response(results):
             f"\n姓名：{r.get('姓名','')}"
             f"\n電話：{r.get('電話','未提供')}"
             f"\nEmail：{r.get('E-MAIL','未提供')}"
+            f"\n問題：{r.get('問題','')}"
+            f"\n處理：{r.get('處理','')}"
             f"\n--------------------"
         )
     return "\n".join(reply)
@@ -55,7 +57,7 @@ def ask_web():
         matched = df[df.apply(lambda row: user_msg in str(row.values), axis=1)]
 
         if matched.empty:
-            answer = "查無資料，請嘗試其他關鍵字。"
+            answer = "查無資料，請嘗試其他關鍵字。 提示:非模糊比對, 輸入查詢文字必須100%符合, 包含大小寫。"
         else:
             results = matched.to_dict("records")
             answer = format_response(results)
@@ -111,7 +113,7 @@ def handle_line_message(event):
         matched = df[df.apply(lambda row: user_msg in str(row.values), axis=1)]
 
         if matched.empty:
-            reply = "查無資料，請嘗試其他關鍵字。"
+            reply = "查無資料，請嘗試其他關鍵字。 提示:非模糊比對, 輸入查詢文字必須100%符合, 包含大小寫。"
         else:
             results = matched.to_dict("records")
             user_sessions[user_id] = {"results": results, "page": 1}

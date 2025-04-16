@@ -16,7 +16,7 @@
 <body>
 
   <div class="container py-5">
-    <h3 class="mb-4"><i class="fas fa-book"></i> 問答紀錄列表</h3>
+    <h3 class="mb-4"><i class="fas fa-book"></i> 查詢紀錄列表</h3>
     {% for file in log_files %}
       <div class="mb-3">
         <a href="/logs/{{ file[8:18] }}" class="btn btn-outline-secondary w-100 text-start">
@@ -27,6 +27,6 @@
     <a href="/" class="btn btn-link"><i class="fas fa-arrow-left"></i> 返回首頁</a>
   </div>
 
-  <footer class="text-center mt-5 small">ICP DAS PACTECH 問答助手 | Version 2.0</footer>
+  <footer class="text-center mt-5 small">FAE_工作週報 AI查詢 | Version 1.1</footer>
 </body>
 </html>
