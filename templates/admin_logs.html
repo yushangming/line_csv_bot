@@ -1,23 +1,32 @@
+
 <!DOCTYPE html>
 <html lang="zh">
 <head>
   <meta charset="UTF-8">
-  <title>管理紀錄</title>
+  <title>{{ title }}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f8f9fa; }
+    .container { max-width: 900px; }
+    footer { margin-top: 60px; color: #aaa; }
+    .log-entry pre { background: #f1f1f1; padding: 15px; border-radius: 6px; }
+  </style>
 </head>
 <body>
-<div class="container py-5">
-  <h4 class="mb-4">管理紀錄清單</h4>
-  {% for file in log_files %}
-    <div class="d-flex justify-content-between align-items-center border p-2 mb-2">
-      <div>{{ file }}</div>
-      <div>
-        <a class="btn btn-sm btn-outline-primary" href="/admin/logs/{{ file }}">查看</a>
-        <a class="btn btn-sm btn-outline-success" href="/admin/logs/{{ file }}/download">下載</a>
+
+  <div class="container py-5">
+    <h3 class="mb-4"><i class="fas fa-server"></i> 伺服器紀錄管理</h3>
+    {% for file in log_files %}
+      <div class="mb-3">
+        <a href="/admin/logs/{{ file }}" class="btn btn-outline-secondary w-100 text-start">
+          <i class="fas fa-file-lines"></i> {{ file }}
+        </a>
       </div>
-    </div>
-  {% endfor %}
-  <a href="/" class="btn btn-link mt-4">返回首頁</a>
-</div>
+    {% endfor %}
+    <a href="/" class="btn btn-link"><i class="fas fa-arrow-left"></i> 返回首頁</a>
+  </div>
+
+  <footer class="text-center mt-5 small">ICP DAS PACTECH 問答助手 | Version 2.0</footer>
 </body>
 </html>
