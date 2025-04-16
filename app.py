@@ -1,4 +1,4 @@
-from flask import Flask, request, abort, render_template, redirect, url_for, session
+from flask import Flask, request, abort, render_template, redirect, url_for, session, send_file
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
@@ -7,11 +7,11 @@ import os
 import requests
 import pandas as pd
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
-from utils.auth import check_login
-from utils.logger import write_log, read_log_list, read_log_by_date
+from utils.auth import check_login, is_locked
+from utils.logger import write_log, read_log_list, read_log_by_date, download_log_file
 
 load_dotenv()
 app = Flask(__name__)
@@ -23,8 +23,16 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 CSV_URL = "https://docs.google.com/spreadsheets/d/1P6CscAxsxkqSPBiOP2s2X1-J5P_2YCNKKi4FOIM8zT0/gviz/tq?tqx=out:csv&gid=1348505043"
-
 user_sessions = {}
+
+@app.before_request
+def session_timeout():
+    session.permanent = True
+    app.permanent_session_lifetime = timedelta(minutes=10)
+    if "last_activity" in session:
+        if datetime.utcnow() - session["last_activity"] > timedelta(minutes=10):
+            session.clear()
+    session["last_activity"] = datetime.utcnow()
 
 def format_response(results):
     reply = []
@@ -43,7 +51,7 @@ def format_response(results):
 
 @app.route("/")
 def index():
-    return render_template("index.html", title="查詢首頁")
+    return render_template("index.html", title="首頁")
 
 @app.route("/ask", methods=["POST"])
 def ask_web():
@@ -61,38 +69,47 @@ def ask_web():
         write_log("WEB", user_msg, answer, user_ip)
     except Exception as e:
         answer = f"錯誤：{e}"
-    return render_template("index.html", question=user_msg, answer=answer, title="查詢結果")
+    return render_template("index.html", question=user_msg, answer=answer)
 
 @app.route("/logs")
 def logs():
-    return render_template("logs.html", log_files=read_log_list(), title="查詢紀錄")
+    return render_template("logs.html", log_files=read_log_list())
 
 @app.route("/logs/<date>")
 def log_detail(date):
-    return render_template("log_detail.html", logs=read_log_by_date(date), date=date, title=f"{date} 詳細紀錄")
+    return render_template("log_detail.html", logs=read_log_by_date(date), date=date)
 
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
+        if is_locked(username):
+            return render_template("admin.html", error="帳號已鎖定，請稍後再試。")
         if check_login(username, password):
             session["admin"] = True
             return redirect("/admin/logs")
-    return render_template("admin.html", title="管理登入")
+        return render_template("admin.html", error="登入失敗")
+    return render_template("admin.html")
 
 @app.route("/admin/logs")
 def admin_logs():
     if not session.get("admin"):
         return redirect("/admin")
-    return render_template("admin_logs.html", log_files=read_log_list(), title="管理紀錄")
+    return render_template("admin_logs.html", log_files=read_log_list())
 
 @app.route("/admin/logs/<filename>")
 def admin_log_file(filename):
     if not session.get("admin"):
         return redirect("/admin")
     date = filename.replace("qa_log_", "").replace(".txt", "")
-    return render_template("log_detail.html", logs=read_log_by_date(date), date=date, title=f"{date} 詳細紀錄")
+    return render_template("log_detail.html", logs=read_log_by_date(date), date=date)
+
+@app.route("/admin/logs/<filename>/download")
+def admin_log_download(filename):
+    if not session.get("admin"):
+        return redirect("/admin")
+    return download_log_file(filename)
 
 @app.route("/callback", methods=["POST"])
 def callback():
@@ -137,6 +154,7 @@ def handle_line_message(event):
                 if len(results) > 3:
                     reply += "\n👉 輸入「下一頁」繼續查看"
         write_log("LINE", user_msg, reply, None)
+        
     except Exception as e:
         reply = f"錯誤：{e}"
     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
